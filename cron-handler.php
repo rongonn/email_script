@@ -15,6 +15,7 @@ require_once 'personalization.php'; // Ensure your getPersonalizedBody function 
 // ===============================
 // Dynamic Base URL (Supports Subdirectories & CLI Fallback)
 // ===============================
+
 if (isset($_SERVER['HTTP_HOST'])) {
     $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https://" : "http://";
     $host = $_SERVER['HTTP_HOST'];
@@ -70,7 +71,13 @@ try {
 
         // 4. Open Tracking
         if ($job['track_open'] == 1) {
-            $processed_body .= '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" alt="">';
+            $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
+
+            if (strpos($processed_body, '</body>') !== false) {
+                $processed_body = str_replace('</body>', $pixel_tag . '</body>', $processed_body);
+            } else {
+                $processed_body .= $pixel_tag;
+            }
         }
 
         // 5. Send email
