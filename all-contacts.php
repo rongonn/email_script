@@ -142,27 +142,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $log_stmt->execute([$user_id, $contact_record['id'] ?? 0]);
             $log_id = $pdo->lastInsertId();
 
-            if ($log_id && $is_html == 1) {
+            if ($log_id) {
                 require_once 'config/app.php';
                 $base_url = APP_URL;
 
-                // 2. Open Tracking Pixel
-                $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
+                if ($is_html == 1) {
+                    // HTML Open Tracking Pixel
+                    $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
 
-                if (strpos($message_body, '</body>') !== false) {
-                    $message_body = str_replace('</body>', $pixel_tag . '</body>', $message_body);
+                    if (strpos($message_body, '</body>') !== false) {
+                        $message_body = str_replace('</body>', $pixel_tag . '</body>', $message_body);
+                    } else {
+                        $message_body .= $pixel_tag;
+                    }
+
+                    // HTML Click Tracking (Wrap hrefs)
+                    $message_body = preg_replace_callback(
+                        '/href=["\'](http[^"\']+)["\']/',
+                        function ($matches) use ($log_id, $base_url) {
+                            return 'href="' . $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[1]) . '"';
+                        },
+                        $message_body
+                    );
                 } else {
-                    $message_body .= $pixel_tag;
+                    // Plain Text Click Tracking (Wrap raw URLs)
+                    // This regex finds URLs not starting with a quote or bracket
+                    $message_body = preg_replace_callback(
+                        '/(?<!["\'\(\[])(https?:\/\/[^\s\r\n]+)/i',
+                        function ($matches) use ($log_id, $base_url) {
+                            return $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[1]);
+                        },
+                        $message_body
+                    );
                 }
-
-                // 3. Click Tracking (Wrap links)
-                $message_body = preg_replace_callback(
-                    '/href=["\'](http[^"\']+)["\']/',
-                    function ($matches) use ($log_id, $base_url) {
-                        return 'href="' . $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[1]) . '"';
-                    },
-                    $message_body
-                );
             }
 
             // Execute the function directly using parsed parameters
