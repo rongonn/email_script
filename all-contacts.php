@@ -53,7 +53,6 @@ if (isset($_GET['action']) && $_GET['action'] === 'view_contact' && isset($_GET[
             'contact' => $contact,
             'fields' => $fields
         ]);
-
     } catch (Exception $e) {
 
         echo json_encode([
@@ -104,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         require_once 'config/mailer.php';
 
         if (function_exists('send_authenticated_email')) {
-            
+
             // 1. Fetch contact base details and custom fields from database to resolve placeholders
             $contact_stmt = $pdo->prepare("SELECT id, email FROM contacts WHERE email = ? AND user_id = ?");
             $contact_stmt->execute([$email, $user_id]);
@@ -139,17 +138,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             // --- TRACKING ENGINE INJECTION ---
             // 1. Create a log entry to get a log_id (template_id = 0 for instant mails)
-            $log_stmt = $pdo->prepare("INSERT INTO email_logs (user_id, template_id, contact_id, sent_at) VALUES (?, 0, ?, NOW())");
+            $log_stmt = $pdo->prepare("INSERT INTO email_logs (user_id, template_id, contact_id, sent_at, is_opened) VALUES (?, 0, ?, NOW(), 0)");
             $log_stmt->execute([$user_id, $contact_record['id'] ?? 0]);
             $log_id = $pdo->lastInsertId();
 
             if ($log_id && $is_html == 1) {
                 require_once 'config/app.php';
                 $base_url = APP_URL;
-                
+
                 // 2. Open Tracking Pixel
                 $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
-                
+
                 if (strpos($message_body, '</body>') !== false) {
                     $message_body = str_replace('</body>', $pixel_tag . '</body>', $message_body);
                 } else {
@@ -165,20 +164,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $message_body
                 );
             }
-            
+
             // Execute the function directly using parsed parameters
             $result = send_authenticated_email($email, $subject, $message_body);
-            
+
             if ($result === true) {
                 echo json_encode(['success' => true, 'message' => 'Instant message successfully fired out using send_authenticated_email()!']);
             } else {
                 echo json_encode(['success' => false, 'error' => 'The mailer accepted the execution but failed to dispatch. Check server logs.']);
             }
-            
         } else {
             echo json_encode(['success' => false, 'error' => 'config/mailer.php linked successfully, but the function send_authenticated_email() could not be found. Check file paths.']);
         }
-
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'error' => 'Mailer execution caught an exception: ' . $e->getMessage()]);
     }
@@ -241,6 +238,7 @@ $contacts_ledger = $stmt->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -261,407 +259,416 @@ $contacts_ledger = $stmt->fetchAll();
             font-family: 'Inter', sans-serif !important;
             font-size: 0.75rem !important;
         }
+
         .ql-toolbar.ql-snow {
             border-top-left-radius: 0.75rem !important;
             border-top-right-radius: 0.75rem !important;
             border-color: #e2e8f0 !important;
             background-color: #f8fafc !important;
         }
+
         .ql-editor {
             min-height: 160px;
             max-height: 240px;
         }
     </style>
 </head>
+
 <body class="bg-gray-50 font-sans text-slate-700 antialiased">
 
-<div class="flex min-h-screen overflow-hidden">
-    <?php require_once 'components/sidebar.php'; ?>
+    <div class="flex min-h-screen overflow-hidden">
+        <?php require_once 'components/sidebar.php'; ?>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        <?php require_once 'components/header.php'; ?>
+        <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
+            <?php require_once 'components/header.php'; ?>
 
-        <main class="flex-grow p-6 md:p-8 space-y-6 max-w-7xl w-full mx-auto">
+            <main class="flex-grow p-6 md:p-8 space-y-6 max-w-7xl w-full mx-auto">
 
-            <div id="dynamic-alert-container" class="hidden text-xs p-4 rounded-xl border shadow-sm transition-all animate-[fadeIn_0.3s_ease-out]"></div>
+                <div id="dynamic-alert-container" class="hidden text-xs p-4 rounded-xl border shadow-sm transition-all animate-[fadeIn_0.3s_ease-out]"></div>
 
-            <?php if ($error): ?>
-                <div class="bg-rose-50 text-rose-600 text-sm p-3.5 rounded-xl border border-rose-100"><i class="fa-solid fa-circle-exclamation mr-2"></i><?php echo htmlspecialchars($error); ?></div>
-            <?php endif; ?>
-            <?php if ($success): ?>
-                <div class="bg-emerald-50 text-emerald-600 text-sm p-3.5 rounded-xl border border-emerald-100"><i class="fa-solid fa-circle-check mr-2"></i><?php echo htmlspecialchars($success); ?></div>
-            <?php endif; ?>
-
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <h1 class="text-xl font-bold text-slate-900 tracking-tight">Global Contacts Directory</h1>
-                    <p class="text-xs text-gray-400 mt-0.5">Manage, track, analyze, and instantly dispatch messaging parameters across your audience segments.</p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <a href="add-contact.php" class="inline-flex items-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all">
-                        <i class="fa-solid fa-plus-circle mr-2"></i> Import or Add New Contacts
-                    </a>
-                </div>
-            </div>
-
-            <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
-
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-5 mb-5">
-                    <div class="text-xs font-medium text-slate-400">
-                        Showing <span class="text-slate-700 font-bold"><?php echo count($contacts_ledger); ?></span> records out of <span class="text-slate-700 font-bold"><?php echo $total_rows; ?></span> matches
-                    </div>
-
-                    <form action="all-contacts.php" method="GET" class="w-full sm:w-80 relative">
-                        <input type="text" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="Search email address, tag parameters..." class="w-full pl-9 pr-8 py-2.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-500 bg-gray-50/50">
-                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
-                        <?php if (!empty($search)): ?>
-                            <a href="all-contacts.php" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-rose-500"><i class="fa-solid fa-circle-xmark text-xs"></i></a>
-                        <?php endif; ?>
-                    </form>
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs text-slate-600">
-                        <thead>
-                            <tr class="border-b border-gray-100 font-bold uppercase tracking-wider text-gray-400 bg-gray-50/40">
-                                <th class="py-3.5 px-4">Recipient Email Identity</th>
-                                <th class="py-3.5 px-4">Campaign Track Segment</th>
-                                <th class="py-3.5 px-4">Created Date</th>
-                                <th class="py-3.5 px-4">Transmission Status</th>
-                                <th class="py-3.5 px-4 text-center">Instant Message</th>
-                                <th class="py-3.5 px-4 text-right">Operational Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100/70">
-                            <?php if (empty($contacts_ledger)): ?>
-                                <tr>
-                                    <td colspan="6" class="py-14 text-center text-gray-400 italic">No user accounts or data fields matches your query specifications.</td>
-                                </tr>
-                            <?php else: ?>
-                                <?php foreach ($contacts_ledger as $row): ?>
-                                    <tr class="hover:bg-gray-50/30 transition-colors">
-                                        <td class="py-3.5 px-4 font-semibold text-slate-900"><?php echo htmlspecialchars($row['email']); ?></td>
-                                        <td class="py-3.5 px-4">
-                                            <span class="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-md font-semibold text-[11px] border border-indigo-100/50">
-                                                <?php echo htmlspecialchars($row['campaign_name']); ?>
-                                            </span>
-                                        </td>
-                                        <td class="py-3.5 px-4 text-gray-400 font-medium">
-                                            <?php echo isset($row['created_at']) ? date('M d, Y H:i', strtotime($row['created_at'])) : date('M d, Y'); ?>
-                                        </td>
-                                        <td class="py-3.5 px-4">
-                                            <button onclick="toggleSendingStatus(<?php echo $row['id']; ?>, this)" class="status-btn px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase transition-all tracking-wider border <?php echo ($row['sending_status'] === 'Active') ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-500 border-rose-200'; ?>">
-                                                <?php echo htmlspecialchars($row['sending_status']); ?>
-                                            </button>
-                                        </td>
-                                        <td class="py-3.5 px-4 text-center">
-                                            <button onclick="openQuickMessageModal('<?php echo htmlspecialchars($row['email']); ?>')" class="inline-flex w-7 h-7 rounded-lg bg-amber-50 hover:bg-amber-500 text-amber-600 hover:text-white items-center justify-center transition-all" title="Instant Direct Transmission Trigger Message">
-                                                <i class="fa-solid fa-paper-plane text-[11px]"></i>
-                                            </button>
-                                        </td>
-                                        <td class="py-3.5 px-4 text-right space-x-1.5">
-                                              <button onclick="openViewContactModal(<?php echo $row['id']; ?>)"
-        class="inline-flex w-7 h-7 rounded-lg bg-blue-50 hover:bg-blue-500 text-blue-500 hover:text-white items-center justify-center transition-all"
-        title="View Contact Details">
-        <i class="fa-solid fa-eye text-[11px]"></i>
-    </button>
-                                            <a href="edit-contact.php?id=<?php echo $row['id']; ?>" class="inline-flex w-7 h-7 rounded-lg bg-gray-100 hover:bg-slate-700 text-slate-600 hover:text-white items-center justify-center transition-all" title="Edit Properties"><i class="fa-solid fa-pen-to-square text-[11px]"></i></a>
-                                            <a href="all-contacts.php?action=delete&id=<?php echo $row['id']; ?>" onclick="return confirm('Drop this logging target and associated metadata tables permanently?');" class="inline-flex w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-500 hover:text-white items-center justify-center transition-all" title="Wipe Log Link"><i class="fa-solid fa-trash text-[11px]"></i></a>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <?php if ($total_pages > 1): ?>
-                    <div class="flex items-center justify-between border-t border-gray-100 pt-4 mt-4">
-                        <div class="text-xs text-gray-400">
-                            Page <span class="font-semibold text-slate-700"><?php echo $page; ?></span> of <span class="font-semibold text-slate-700"><?php echo $total_pages; ?></span> pages
-                        </div>
-                        <div class="flex items-center space-x-1">
-                            <a href="all-contacts.php?page=<?php echo $page - 1; ?>&search=<?php echo urlencode($search); ?>" class="inline-flex items-center justify-center w-8 h-8 rounded-xl border border-gray-200 text-gray-500 bg-white hover:bg-gray-50 transition-colors text-xs <?php echo $page <= 1 ? 'pointer-events-none opacity-40' : ''; ?>">
-                                <i class="fa-solid fa-chevron-left"></i>
-                            </a>
-
-                            <?php
-                            $start_page = max(1, $page - 2);
-                            $end_page = min($total_pages, $page + 2);
-                            for ($i = $start_page; $i <= $end_page; $i++):
-                            ?>
-                                <a href="all-contacts.php?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>" class="inline-flex items-center justify-center w-8 h-8 rounded-xl text-xs font-semibold transition-all <?php echo $i === $page ? 'bg-indigo-600 text-white shadow-sm' : 'border border-gray-200 text-slate-600 hover:bg-gray-50 bg-white'; ?>">
-                                    <?php echo $i; ?>
-                                </a>
-                            <?php endfor; ?>
-
-                            <a href="all-contacts.php?page=<?php echo $page + 1; ?>&search=<?php echo urlencode($search); ?>" class="inline-flex items-center justify-center w-8 h-8 rounded-xl border border-gray-200 text-gray-500 bg-white hover:bg-gray-50 transition-colors text-xs <?php echo $page >= $total_pages ? 'pointer-events-none opacity-40' : ''; ?>">
-                                <i class="fa-solid fa-chevron-right"></i>
-                            </a>
-                        </div>
-                    </div>
+                <?php if ($error): ?>
+                    <div class="bg-rose-50 text-rose-600 text-sm p-3.5 rounded-xl border border-rose-100"><i class="fa-solid fa-circle-exclamation mr-2"></i><?php echo htmlspecialchars($error); ?></div>
                 <?php endif; ?>
-            </div>
+                <?php if ($success): ?>
+                    <div class="bg-emerald-50 text-emerald-600 text-sm p-3.5 rounded-xl border border-emerald-100"><i class="fa-solid fa-circle-check mr-2"></i><?php echo htmlspecialchars($success); ?></div>
+                <?php endif; ?>
 
-        </main>
-    </div>
-</div>
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-slate-900 tracking-tight">Global Contacts Directory</h1>
+                        <p class="text-xs text-gray-400 mt-0.5">Manage, track, analyze, and instantly dispatch messaging parameters across your audience segments.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <a href="add-contact.php" class="inline-flex items-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all">
+                            <i class="fa-solid fa-plus-circle mr-2"></i> Import or Add New Contacts
+                        </a>
+                    </div>
+                </div>
 
-<div id="quick-message-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center p-4">
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-xl max-w-xl w-full p-6 space-y-4 transform transition-all">
+                <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
 
-        <div class="flex items-center justify-between border-b border-gray-100 pb-3">
-            <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-amber-500"></i> Dispatch Single Instant Message</h3>
-            <button onclick="closeQuickMessageModal()" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-times"></i></button>
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-5 mb-5">
+                        <div class="text-xs font-medium text-slate-400">
+                            Showing <span class="text-slate-700 font-bold"><?php echo count($contacts_ledger); ?></span> records out of <span class="text-slate-700 font-bold"><?php echo $total_rows; ?></span> matches
+                        </div>
+
+                        <form action="all-contacts.php" method="GET" class="w-full sm:w-80 relative">
+                            <input type="text" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="Search email address, tag parameters..." class="w-full pl-9 pr-8 py-2.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-500 bg-gray-50/50">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                            <?php if (!empty($search)): ?>
+                                <a href="all-contacts.php" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-rose-500"><i class="fa-solid fa-circle-xmark text-xs"></i></a>
+                            <?php endif; ?>
+                        </form>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead>
+                                <tr class="border-b border-gray-100 font-bold uppercase tracking-wider text-gray-400 bg-gray-50/40">
+                                    <th class="py-3.5 px-4">Recipient Email Identity</th>
+                                    <th class="py-3.5 px-4">Campaign Track Segment</th>
+                                    <th class="py-3.5 px-4">Created Date</th>
+                                    <th class="py-3.5 px-4">Transmission Status</th>
+                                    <th class="py-3.5 px-4 text-center">Instant Message</th>
+                                    <th class="py-3.5 px-4 text-right">Operational Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100/70">
+                                <?php if (empty($contacts_ledger)): ?>
+                                    <tr>
+                                        <td colspan="6" class="py-14 text-center text-gray-400 italic">No user accounts or data fields matches your query specifications.</td>
+                                    </tr>
+                                <?php else: ?>
+                                    <?php foreach ($contacts_ledger as $row): ?>
+                                        <tr class="hover:bg-gray-50/30 transition-colors">
+                                            <td class="py-3.5 px-4 font-semibold text-slate-900"><?php echo htmlspecialchars($row['email']); ?></td>
+                                            <td class="py-3.5 px-4">
+                                                <span class="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-md font-semibold text-[11px] border border-indigo-100/50">
+                                                    <?php echo htmlspecialchars($row['campaign_name']); ?>
+                                                </span>
+                                            </td>
+                                            <td class="py-3.5 px-4 text-gray-400 font-medium">
+                                                <?php echo isset($row['created_at']) ? date('M d, Y H:i', strtotime($row['created_at'])) : date('M d, Y'); ?>
+                                            </td>
+                                            <td class="py-3.5 px-4">
+                                                <button onclick="toggleSendingStatus(<?php echo $row['id']; ?>, this)" class="status-btn px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase transition-all tracking-wider border <?php echo ($row['sending_status'] === 'Active') ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-500 border-rose-200'; ?>">
+                                                    <?php echo htmlspecialchars($row['sending_status']); ?>
+                                                </button>
+                                            </td>
+                                            <td class="py-3.5 px-4 text-center">
+                                                <button onclick="openQuickMessageModal('<?php echo htmlspecialchars($row['email']); ?>')" class="inline-flex w-7 h-7 rounded-lg bg-amber-50 hover:bg-amber-500 text-amber-600 hover:text-white items-center justify-center transition-all" title="Instant Direct Transmission Trigger Message">
+                                                    <i class="fa-solid fa-paper-plane text-[11px]"></i>
+                                                </button>
+                                            </td>
+                                            <td class="py-3.5 px-4 text-right space-x-1.5">
+                                                <button onclick="openViewContactModal(<?php echo $row['id']; ?>)"
+                                                    class="inline-flex w-7 h-7 rounded-lg bg-blue-50 hover:bg-blue-500 text-blue-500 hover:text-white items-center justify-center transition-all"
+                                                    title="View Contact Details">
+                                                    <i class="fa-solid fa-eye text-[11px]"></i>
+                                                </button>
+                                                <a href="edit-contact.php?id=<?php echo $row['id']; ?>" class="inline-flex w-7 h-7 rounded-lg bg-gray-100 hover:bg-slate-700 text-slate-600 hover:text-white items-center justify-center transition-all" title="Edit Properties"><i class="fa-solid fa-pen-to-square text-[11px]"></i></a>
+                                                <a href="all-contacts.php?action=delete&id=<?php echo $row['id']; ?>" onclick="return confirm('Drop this logging target and associated metadata tables permanently?');" class="inline-flex w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-500 hover:text-white items-center justify-center transition-all" title="Wipe Log Link"><i class="fa-solid fa-trash text-[11px]"></i></a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <?php if ($total_pages > 1): ?>
+                        <div class="flex items-center justify-between border-t border-gray-100 pt-4 mt-4">
+                            <div class="text-xs text-gray-400">
+                                Page <span class="font-semibold text-slate-700"><?php echo $page; ?></span> of <span class="font-semibold text-slate-700"><?php echo $total_pages; ?></span> pages
+                            </div>
+                            <div class="flex items-center space-x-1">
+                                <a href="all-contacts.php?page=<?php echo $page - 1; ?>&search=<?php echo urlencode($search); ?>" class="inline-flex items-center justify-center w-8 h-8 rounded-xl border border-gray-200 text-gray-500 bg-white hover:bg-gray-50 transition-colors text-xs <?php echo $page <= 1 ? 'pointer-events-none opacity-40' : ''; ?>">
+                                    <i class="fa-solid fa-chevron-left"></i>
+                                </a>
+
+                                <?php
+                                $start_page = max(1, $page - 2);
+                                $end_page = min($total_pages, $page + 2);
+                                for ($i = $start_page; $i <= $end_page; $i++):
+                                ?>
+                                    <a href="all-contacts.php?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>" class="inline-flex items-center justify-center w-8 h-8 rounded-xl text-xs font-semibold transition-all <?php echo $i === $page ? 'bg-indigo-600 text-white shadow-sm' : 'border border-gray-200 text-slate-600 hover:bg-gray-50 bg-white'; ?>">
+                                        <?php echo $i; ?>
+                                    </a>
+                                <?php endfor; ?>
+
+                                <a href="all-contacts.php?page=<?php echo $page + 1; ?>&search=<?php echo urlencode($search); ?>" class="inline-flex items-center justify-center w-8 h-8 rounded-xl border border-gray-200 text-gray-500 bg-white hover:bg-gray-50 transition-colors text-xs <?php echo $page >= $total_pages ? 'pointer-events-none opacity-40' : ''; ?>">
+                                    <i class="fa-solid fa-chevron-right"></i>
+                                </a>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+            </main>
         </div>
+    </div>
 
-        <div class="space-y-3.5">
-            <div>
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Target Account Destination</label>
-                <input type="text" id="modal-target-email" readonly class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 text-xs rounded-xl font-medium text-slate-500 focus:outline-none">
+    <div id="quick-message-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-xl max-w-xl w-full p-6 space-y-4 transform transition-all">
+
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+                <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-amber-500"></i> Dispatch Single Instant Message</h3>
+                <button onclick="closeQuickMessageModal()" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-times"></i></button>
             </div>
 
-            <div>
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Email Subject Line *</label>
-                <input type="text" id="modal-email-subject" placeholder="Enter email subject..." class="w-full px-3.5 py-2.5 border border-gray-200 text-xs rounded-xl focus:outline-none focus:border-amber-500 font-medium">
-            </div>
+            <div class="space-y-3.5">
+                <div>
+                    <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Target Account Destination</label>
+                    <input type="text" id="modal-target-email" readonly class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 text-xs rounded-xl font-medium text-slate-500 focus:outline-none">
+                </div>
 
-            <div>
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Transmission Layout Format Engine</label>
-                <select id="modal-is-html-select" class="w-full px-3.5 py-2.5 bg-white border border-gray-200 text-xs rounded-xl font-medium text-slate-700 focus:outline-none focus:border-amber-500">
-                    <option value="1" selected>HTML Layout Framework (Supports paragraph mappings, fonts, layout formats)</option>
-                    <option value="0">Plain Text (Strips HTML nodes, matches raw unformatted characters string blocks)</option>
-                </select>
-            </div>
+                <div>
+                    <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Email Subject Line *</label>
+                    <input type="text" id="modal-email-subject" placeholder="Enter email subject..." class="w-full px-3.5 py-2.5 border border-gray-200 text-xs rounded-xl focus:outline-none focus:border-amber-500 font-medium">
+                </div>
 
-            <div class="space-y-1.5">
-                <label class="block text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Email Personalization Shortcodes</label>
-                <div class="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto p-1 bg-slate-50 border border-slate-100 rounded-lg">
-                    <button type="button" onclick="injectMergeTag('{{email}}')" class="px-2 py-1 bg-white border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded text-[10px] font-medium transition-all text-slate-600">Email Address</button>
-                    <?php foreach ($global_custom_fields as $label):
-                        $slug = strtolower(str_replace(' ', '_', trim($label))); ?>
-                        <button type="button" onclick="injectMergeTag('{{<?php echo $slug; ?>}}')" class="px-2 py-1 bg-white border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded text-[10px] font-medium transition-all text-slate-600"><?php echo htmlspecialchars($label); ?></button>
-                    <?php endforeach; ?>
+                <div>
+                    <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Transmission Layout Format Engine</label>
+                    <select id="modal-is-html-select" class="w-full px-3.5 py-2.5 bg-white border border-gray-200 text-xs rounded-xl font-medium text-slate-700 focus:outline-none focus:border-amber-500">
+                        <option value="1" selected>HTML Layout Framework (Supports paragraph mappings, fonts, layout formats)</option>
+                        <option value="0">Plain Text (Strips HTML nodes, matches raw unformatted characters string blocks)</option>
+                    </select>
+                </div>
+
+                <div class="space-y-1.5">
+                    <label class="block text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Email Personalization Shortcodes</label>
+                    <div class="flex flex-wrap gap-1.5 max-h-[56px] overflow-y-auto p-1 bg-slate-50 border border-slate-100 rounded-lg">
+                        <button type="button" onclick="injectMergeTag('{{email}}')" class="px-2 py-1 bg-white border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded text-[10px] font-medium transition-all text-slate-600">Email Address</button>
+                        <?php foreach ($global_custom_fields as $label):
+                            $slug = strtolower(str_replace(' ', '_', trim($label))); ?>
+                            <button type="button" onclick="injectMergeTag('{{<?php echo $slug; ?>}}')" class="px-2 py-1 bg-white border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded text-[10px] font-medium transition-all text-slate-600"><?php echo htmlspecialchars($label); ?></button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Message Content Payload</label>
+                    <div id="editor-container" class="bg-white text-xs"></div>
                 </div>
             </div>
 
-            <div>
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Message Content Payload</label>
-                <div id="editor-container" class="bg-white text-xs"></div>
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button onclick="closeQuickMessageModal()" class="px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
+                <button id="modal-submit-btn" onclick="executeInstantMessageDispatch()" class="px-4 py-2 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-xl transition-all shadow-sm shadow-amber-100"><i class="fa-solid fa-paper-plane mr-1.5"></i> Fire Message</button>
             </div>
         </div>
-
-        <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-            <button onclick="closeQuickMessageModal()" class="px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
-            <button id="modal-submit-btn" onclick="executeInstantMessageDispatch()" class="px-4 py-2 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-xl transition-all shadow-sm shadow-amber-100"><i class="fa-solid fa-paper-plane mr-1.5"></i> Fire Message</button>
-        </div>
     </div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
-<!-- VIEW CONTACT MODAL -->
-<div id="view-contact-modal"
-     class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center p-4">
+    <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
+    <!-- VIEW CONTACT MODAL -->
+    <div id="view-contact-modal"
+        class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center p-4">
 
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-xl max-w-2xl w-full">
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-xl max-w-2xl w-full">
 
-        <!-- HEADER -->
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <i class="fa-solid fa-address-card text-blue-500"></i>
-                Contact Full Details
-            </h3>
+            <!-- HEADER -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <i class="fa-solid fa-address-card text-blue-500"></i>
+                    Contact Full Details
+                </h3>
 
-            <button onclick="closeViewContactModal()"
+                <button onclick="closeViewContactModal()"
                     class="text-gray-400 hover:text-gray-600">
-                <i class="fa-solid fa-times"></i>
-            </button>
-        </div>
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
 
-        <!-- BODY -->
-        <div class="p-6 max-h-[70vh] overflow-y-auto">
+            <!-- BODY -->
+            <div class="p-6 max-h-[70vh] overflow-y-auto">
 
-            <table class="w-full text-xs border border-gray-100 rounded-xl overflow-hidden">
-                <tbody id="contact-details-table"
-                       class="divide-y divide-gray-100">
+                <table class="w-full text-xs border border-gray-100 rounded-xl overflow-hidden">
+                    <tbody id="contact-details-table"
+                        class="divide-y divide-gray-100">
 
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
 
-        </div>
+            </div>
 
-        <!-- FOOTER -->
-        <div class="px-6 py-4 border-t border-gray-100 flex justify-end">
-            <button onclick="closeViewContactModal()"
+            <!-- FOOTER -->
+            <div class="px-6 py-4 border-t border-gray-100 flex justify-end">
+                <button onclick="closeViewContactModal()"
                     class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-slate-700 rounded-xl text-xs font-semibold transition-all">
-                Close
-            </button>
+                    Close
+                </button>
+            </div>
+
         </div>
-
     </div>
-</div>
 
-<script>
-// --- INITIALIZE INTEGRATED QUILL FRAMEWORK INSTANCE ON DOM LOAD ---
-let quillInstance;
-document.addEventListener("DOMContentLoaded", function() {
-    quillInstance = new Quill('#editor-container', {
-        theme: 'snow',
-        placeholder: 'Compose message payload seamlessly here... Use formatting options above, or inject shortcodes to personalize execution mappings.',
-        modules: {
-            toolbar: [
-                ['bold', 'italic', 'underline'],
-                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                ['clean']
-            ]
+    <script>
+        // --- INITIALIZE INTEGRATED QUILL FRAMEWORK INSTANCE ON DOM LOAD ---
+        let quillInstance;
+        document.addEventListener("DOMContentLoaded", function() {
+            quillInstance = new Quill('#editor-container', {
+                theme: 'snow',
+                placeholder: 'Compose message payload seamlessly here... Use formatting options above, or inject shortcodes to personalize execution mappings.',
+                modules: {
+                    toolbar: [
+                        ['bold', 'italic', 'underline'],
+                        [{
+                            'list': 'ordered'
+                        }, {
+                            'list': 'bullet'
+                        }],
+                        ['clean']
+                    ]
+                }
+            });
+        });
+
+        // --- STATUS TOGGLE ACTIONS ---
+        function toggleSendingStatus(contactId, buttonElement) {
+            buttonElement.disabled = true;
+            buttonElement.style.opacity = '0.5';
+
+            fetch(`all-contacts.php?action=toggle_status&id=${contactId}`)
+                .then(res => res.json())
+                .then(data => {
+                    buttonElement.disabled = false;
+                    buttonElement.style.opacity = '1';
+
+                    if (data.success) {
+                        buttonElement.textContent = data.new_status;
+                        if (data.new_status === 'Active') {
+                            buttonElement.className = "status-btn px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase transition-all tracking-wider border bg-emerald-50 text-emerald-600 border-emerald-200";
+                        } else {
+                            buttonElement.className = "status-btn px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase transition-all tracking-wider border bg-rose-50 text-rose-500 border-rose-200";
+                        }
+                    } else {
+                        showToastNotification('Failed to modify operational mode state logic.', 'error');
+                    }
+                })
+                .catch(() => {
+                    buttonElement.disabled = false;
+                    buttonElement.style.opacity = '1';
+                    showToastNotification('Connection to server framework disrupted.', 'error');
+                });
         }
-    });
-});
 
-// --- STATUS TOGGLE ACTIONS ---
-function toggleSendingStatus(contactId, buttonElement) {
-    buttonElement.disabled = true;
-    buttonElement.style.opacity = '0.5';
+        // --- MODAL ENGINE BEHAVIORS MANAGER ---
+        function openQuickMessageModal(targetEmail) {
+            document.getElementById('modal-target-email').value = targetEmail;
+            const modal = document.getElementById('quick-message-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
 
-    fetch(`all-contacts.php?action=toggle_status&id=${contactId}`)
-    .then(res => res.json())
-    .then(data => {
-        buttonElement.disabled = false;
-        buttonElement.style.opacity = '1';
+        function closeQuickMessageModal() {
+            const modal = document.getElementById('quick-message-modal');
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
 
-        if (data.success) {
-            buttonElement.textContent = data.new_status;
-            if (data.new_status === 'Active') {
-                buttonElement.className = "status-btn px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase transition-all tracking-wider border bg-emerald-50 text-emerald-600 border-emerald-200";
-            } else {
-                buttonElement.className = "status-btn px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase transition-all tracking-wider border bg-rose-50 text-rose-500 border-rose-200";
+            // Wipe structural data memory buffers clean
+            document.getElementById('modal-email-subject').value = '';
+            document.getElementById('modal-is-html-select').value = '1';
+            if (quillInstance) {
+                quillInstance.setContents([]);
             }
-        } else {
-            showToastNotification('Failed to modify operational mode state logic.', 'error');
         }
-    })
-    .catch(() => {
-        buttonElement.disabled = false;
-        buttonElement.style.opacity = '1';
-        showToastNotification('Connection to server framework disrupted.', 'error');
-    });
-}
 
-// --- MODAL ENGINE BEHAVIORS MANAGER ---
-function openQuickMessageModal(targetEmail) {
-    document.getElementById('modal-target-email').value = targetEmail;
-    const modal = document.getElementById('quick-message-modal');
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-}
+        // Safely injects personalization tags down into active Quill editor caret target frames point positions
+        function injectMergeTag(tagString) {
+            if (!quillInstance) return;
 
-function closeQuickMessageModal() {
-    const modal = document.getElementById('quick-message-modal');
-    modal.classList.remove('flex');
-    modal.classList.add('hidden');
-
-    // Wipe structural data memory buffers clean
-    document.getElementById('modal-email-subject').value = '';
-    document.getElementById('modal-is-html-select').value = '1';
-    if(quillInstance) {
-        quillInstance.setContents([]);
-    }
-}
-
-// Safely injects personalization tags down into active Quill editor caret target frames point positions
-function injectMergeTag(tagString) {
-    if (!quillInstance) return;
-    
-    // Fetch user selection caret placement array metrics
-    const selectionRange = quillInstance.getSelection(true);
-    if (selectionRange) {
-        // Insert shortcode text chunk directly into workspace coordinates safely
-        quillInstance.insertText(selectionRange.index, tagString, 'user');
-        // Advance cursor tracking cleanly behind injected custom macro placeholder tags
-        quillInstance.setSelection(selectionRange.index + tagString.length, 0);
-    }
-}
-
-// --- EXECUTE DISPATCH VIA SECURE BACKEND CONTROLLER POST ENGINE ---
-function executeInstantMessageDispatch() {
-    const email = document.getElementById('modal-target-email').value;
-    const subject = document.getElementById('modal-email-subject').value.trim();
-    const isHtml = document.getElementById('modal-is-html-select').value;
-    const submitBtn = document.getElementById('modal-submit-btn');
-
-    // Extract compiled raw text or full semantic text architecture configurations from Quill core pipeline
-    let messageBody = '';
-    if (quillInstance) {
-        if (isHtml === '1') {
-            // Fetch internal structural html string parameters
-            messageBody = quillInstance.getSemanticHTML().trim();
-        } else {
-            // Fetch clean textual plain string matrix parameters
-            messageBody = quillInstance.getText().trim();
+            // Fetch user selection caret placement array metrics
+            const selectionRange = quillInstance.getSelection(true);
+            if (selectionRange) {
+                // Insert shortcode text chunk directly into workspace coordinates safely
+                quillInstance.insertText(selectionRange.index, tagString, 'user');
+                // Advance cursor tracking cleanly behind injected custom macro placeholder tags
+                quillInstance.setSelection(selectionRange.index + tagString.length, 0);
+            }
         }
-    }
 
-    if (!subject || !messageBody || messageBody === '<p></p>') {
-        alert('Please compose both Subject and Message body contents before launching execution streams.');
-        return;
-    }
+        // --- EXECUTE DISPATCH VIA SECURE BACKEND CONTROLLER POST ENGINE ---
+        function executeInstantMessageDispatch() {
+            const email = document.getElementById('modal-target-email').value;
+            const subject = document.getElementById('modal-email-subject').value.trim();
+            const isHtml = document.getElementById('modal-is-html-select').value;
+            const submitBtn = document.getElementById('modal-submit-btn');
 
-    // Lock button interaction metrics states
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = "<i class='fa-solid fa-spinner fa-spin mr-1.5'></i> Routing...";
+            // Extract compiled raw text or full semantic text architecture configurations from Quill core pipeline
+            let messageBody = '';
+            if (quillInstance) {
+                if (isHtml === '1') {
+                    // Fetch internal structural html string parameters
+                    messageBody = quillInstance.getSemanticHTML().trim();
+                } else {
+                    // Fetch clean textual plain string matrix parameters
+                    messageBody = quillInstance.getText().trim();
+                }
+            }
 
-    // Pack data elements payload sets safely array encoded matrix
-    const formData = new FormData();
-    formData.append('action', 'dispatch_instant_email');
-    formData.append('email', email);
-    formData.append('subject', subject);
-    formData.append('message_body', messageBody);
-    formData.append('is_html', isHtml);
+            if (!subject || !messageBody || messageBody === '<p></p>') {
+                alert('Please compose both Subject and Message body contents before launching execution streams.');
+                return;
+            }
 
-    fetch('all-contacts.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(res => res.json())
-    .then(data => {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = "<i class='fa-solid fa-paper-plane mr-1.5'></i> Fire Message";
+            // Lock button interaction metrics states
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = "<i class='fa-solid fa-spinner fa-spin mr-1.5'></i> Routing...";
 
-        if (data.success) {
-            showToastNotification(data.message, 'success');
-            closeQuickMessageModal();
-        } else {
-            alert('Transmission Failure: ' + data.error);
+            // Pack data elements payload sets safely array encoded matrix
+            const formData = new FormData();
+            formData.append('action', 'dispatch_instant_email');
+            formData.append('email', email);
+            formData.append('subject', subject);
+            formData.append('message_body', messageBody);
+            formData.append('is_html', isHtml);
+
+            fetch('all-contacts.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = "<i class='fa-solid fa-paper-plane mr-1.5'></i> Fire Message";
+
+                    if (data.success) {
+                        showToastNotification(data.message, 'success');
+                        closeQuickMessageModal();
+                    } else {
+                        alert('Transmission Failure: ' + data.error);
+                    }
+                })
+                .catch(() => {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = "<i class='fa-solid fa-paper-plane mr-1.5'></i> Fire Message";
+                    alert('Network communication with transmission deck disrupted.');
+                });
         }
-    })
-    .catch(() => {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = "<i class='fa-solid fa-paper-plane mr-1.5'></i> Fire Message";
-        alert('Network communication with transmission deck disrupted.');
-    });
-}
 
-// Global asynchronous toast dynamic feedback indicator alert element logic helper code
-function showToastNotification(message, type) {
-    const alertBox = document.getElementById('dynamic-alert-container');
-    alertBox.innerHTML = (type === 'success' ? "<i class='fa-solid fa-circle-check mr-2 text-sm align-middle'></i>" : "<i class='fa-solid fa-circle-exclamation mr-2 text-sm align-middle'></i>") + message;
+        // Global asynchronous toast dynamic feedback indicator alert element logic helper code
+        function showToastNotification(message, type) {
+            const alertBox = document.getElementById('dynamic-alert-container');
+            alertBox.innerHTML = (type === 'success' ? "<i class='fa-solid fa-circle-check mr-2 text-sm align-middle'></i>" : "<i class='fa-solid fa-circle-exclamation mr-2 text-sm align-middle'></i>") + message;
 
-    if (type === 'success') {
-        alertBox.className = "bg-emerald-50 text-emerald-600 border border-emerald-100/70 p-4 rounded-xl shadow-sm block mb-6";
-    } else {
-        alertBox.className = "bg-rose-50 text-rose-600 border border-rose-100/70 p-4 rounded-xl shadow-sm block mb-6";
-    }
+            if (type === 'success') {
+                alertBox.className = "bg-emerald-50 text-emerald-600 border border-emerald-100/70 p-4 rounded-xl shadow-sm block mb-6";
+            } else {
+                alertBox.className = "bg-rose-50 text-rose-600 border border-rose-100/70 p-4 rounded-xl shadow-sm block mb-6";
+            }
 
-    // Clear viewport after duration
-    setTimeout(() => { alertBox.className = "hidden"; }, 5000);
-}
-// --- VIEW CONTACT DETAILS MODAL ---
-function openViewContactModal(contactId) {
+            // Clear viewport after duration
+            setTimeout(() => {
+                alertBox.className = "hidden";
+            }, 5000);
+        }
+        // --- VIEW CONTACT DETAILS MODAL ---
+        function openViewContactModal(contactId) {
 
-    const modal = document.getElementById('view-contact-modal');
-    const tableBody = document.getElementById('contact-details-table');
+            const modal = document.getElementById('view-contact-modal');
+            const tableBody = document.getElementById('contact-details-table');
 
-    tableBody.innerHTML = `
+            tableBody.innerHTML = `
         <tr>
             <td colspan="2" class="text-center py-10 text-gray-400">
                 <i class="fa-solid fa-spinner fa-spin mr-2"></i>
@@ -670,16 +677,16 @@ function openViewContactModal(contactId) {
         </tr>
     `;
 
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
 
-    fetch(`all-contacts.php?action=view_contact&id=${contactId}`)
-    .then(res => res.json())
-    .then(data => {
+            fetch(`all-contacts.php?action=view_contact&id=${contactId}`)
+                .then(res => res.json())
+                .then(data => {
 
-        if (!data.success) {
+                    if (!data.success) {
 
-            tableBody.innerHTML = `
+                        tableBody.innerHTML = `
                 <tr>
                     <td colspan="2" class="text-center py-10 text-rose-500">
                         ${data.error}
@@ -687,13 +694,13 @@ function openViewContactModal(contactId) {
                 </tr>
             `;
 
-            return;
-        }
+                        return;
+                    }
 
-        let html = '';
+                    let html = '';
 
-        // Basic Info
-        html += `
+                    // Basic Info
+                    html += `
             <tr class="bg-slate-50">
                 <td class="px-4 py-3 font-bold text-slate-700 w-48">Email</td>
                 <td class="px-4 py-3 text-slate-600">${data.contact.email ?? '-'}</td>
@@ -715,12 +722,12 @@ function openViewContactModal(contactId) {
             </tr>
         `;
 
-        // Custom Fields
-        if (data.fields.length > 0) {
+                    // Custom Fields
+                    if (data.fields.length > 0) {
 
-            data.fields.forEach(field => {
+                        data.fields.forEach(field => {
 
-                html += `
+                            html += `
                     <tr class="bg-slate-50">
                         <td class="px-4 py-3 font-bold text-slate-700">
                             ${field.field_label}
@@ -731,11 +738,11 @@ function openViewContactModal(contactId) {
                         </td>
                     </tr>
                 `;
-            });
+                        });
 
-        } else {
+                    } else {
 
-            html += `
+                        html += `
                 <tr>
                     <td colspan="2"
                         class="text-center py-6 text-gray-400 italic">
@@ -743,14 +750,14 @@ function openViewContactModal(contactId) {
                     </td>
                 </tr>
             `;
-        }
+                    }
 
-        tableBody.innerHTML = html;
+                    tableBody.innerHTML = html;
 
-    })
-    .catch(() => {
+                })
+                .catch(() => {
 
-        tableBody.innerHTML = `
+                    tableBody.innerHTML = `
             <tr>
                 <td colspan="2"
                     class="text-center py-10 text-rose-500">
@@ -758,55 +765,56 @@ function openViewContactModal(contactId) {
                 </td>
             </tr>
         `;
-    });
-}
-
-function closeViewContactModal() {
-
-    const modal = document.getElementById('view-contact-modal');
-
-    modal.classList.remove('flex');
-    modal.classList.add('hidden');
-}
-</script>
-
-<script>
-const sidebar = document.getElementById('sidebar');
-const overlay = document.getElementById('sidebar-overlay');
-const toggleBtn = document.getElementById('mobile-toggle');
-
-function openSidebar() {
-    sidebar.classList.remove('-translate-x-full');
-    sidebar.classList.add('translate-x-0');
-
-    overlay.classList.remove('hidden');
-}
-
-function closeSidebar() {
-    sidebar.classList.add('-translate-x-full');
-    sidebar.classList.remove('translate-x-0');
-
-    overlay.classList.add('hidden');
-}
-
-// OPEN
-toggleBtn.addEventListener('click', function () {
-    openSidebar();
-});
-
-// CLOSE when clicking overlay
-overlay.addEventListener('click', function () {
-    closeSidebar();
-});
-
-// CLOSE when clicking a menu item (mobile UX improvement)
-document.querySelectorAll('#sidebar a').forEach(link => {
-    link.addEventListener('click', () => {
-        if (window.innerWidth < 768) {
-            closeSidebar();
+                });
         }
-    });
-});
-</script>
+
+        function closeViewContactModal() {
+
+            const modal = document.getElementById('view-contact-modal');
+
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        }
+    </script>
+
+    <script>
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        const toggleBtn = document.getElementById('mobile-toggle');
+
+        function openSidebar() {
+            sidebar.classList.remove('-translate-x-full');
+            sidebar.classList.add('translate-x-0');
+
+            overlay.classList.remove('hidden');
+        }
+
+        function closeSidebar() {
+            sidebar.classList.add('-translate-x-full');
+            sidebar.classList.remove('translate-x-0');
+
+            overlay.classList.add('hidden');
+        }
+
+        // OPEN
+        toggleBtn.addEventListener('click', function() {
+            openSidebar();
+        });
+
+        // CLOSE when clicking overlay
+        overlay.addEventListener('click', function() {
+            closeSidebar();
+        });
+
+        // CLOSE when clicking a menu item (mobile UX improvement)
+        document.querySelectorAll('#sidebar a').forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth < 768) {
+                    closeSidebar();
+                }
+            });
+        });
+    </script>
 </body>
+
 </html>

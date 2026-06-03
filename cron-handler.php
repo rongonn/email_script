@@ -44,7 +44,7 @@ try {
     foreach ($queue as $job) {
 
         // 1. Try to log the attempt (INSERT IGNORE prevents duplicate errors)
-        $log_stmt = $pdo->prepare("INSERT IGNORE INTO email_logs (user_id, template_id, contact_id, sent_at) VALUES (?, ?, ?, NOW())");
+        $log_stmt = $pdo->prepare("INSERT IGNORE INTO email_logs (user_id, template_id, contact_id, sent_at, is_opened) VALUES (?, ?, ?, NOW(), 0)");
         $log_stmt->execute([$job['user_id'], $job['template_id'], $job['contact_id']]);
         $log_id = $pdo->lastInsertId();
 
