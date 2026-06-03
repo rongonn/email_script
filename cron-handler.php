@@ -54,23 +54,33 @@ try {
             continue;
         }
 
-        // 2. Apply Personalization
         $processed_subject = getPersonalizedBody($pdo, $job['subject'], $job['contact_id']);
         $processed_body = getPersonalizedBody($pdo, $job['message_body'], $job['contact_id']);
 
-        // 3. Click Tracking
         if ($job['track_click'] == 1) {
-            $processed_body = preg_replace_callback(
-                '/href=["\'](http[^"\']+)["\']/',
-                function ($matches) use ($log_id, $base_url) {
-                    return 'href="' . $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[1]) . '"';
-                },
-                $processed_body
-            );
-        }
+            
+            $domain_fallback = str_replace(['http://', 'https://'], '', $base_url);
+            $clean_base_url = preg_quote(rtrim($domain_fallback, '/'), '/');
 
-        // 4. Open Tracking
-        if ($job['track_open'] == 1) {
+            if ($job['is_html'] == 1) {
+                $processed_body = preg_replace_callback(
+                    '/href=["\'](https?:\/\/(?!' . $clean_base_url . ')[^"\']+)["\']/i',
+                    function ($matches) use ($log_id, $base_url) {
+                        return 'href="' . $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[1]) . '"';
+                    },
+                    $processed_body
+                );
+            } else {
+                $processed_body = preg_replace_callback(
+                    '/(?<!["\'\(\[])https?:\/\/(?!' . $clean_base_url . ')[^\s\r\n]+/i',
+                    function ($matches) use ($log_id, $base_url) {
+                        return $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[0]);
+                    },
+                    $processed_body
+                );
+            }
+        }
+        if ($job['track_open'] == 1 && $job['is_html'] == 1) {
             $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
 
             if (strpos($processed_body, '</body>') !== false) {

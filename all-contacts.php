@@ -165,12 +165,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         $message_body
                     );
                 } else {
-                    // Plain Text Click Tracking (Wrap raw URLs)
-                    // This regex finds URLs not starting with a quote or bracket
+
+
+                    $domain_fallback = str_replace(['http://', 'https://'], '', $base_url);
+                    $clean_base_url = preg_quote(rtrim($domain_fallback, '/'), '/');
+
                     $message_body = preg_replace_callback(
-                        '/(?<!["\'\(\[])(https?:\/\/[^\s\r\n]+)/i',
+                        '/(?<!["\'\(\[])https?:\/\/(?!' . $clean_base_url . ')[^\s\r\n]+/i',
                         function ($matches) use ($log_id, $base_url) {
-                            return $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[1]);
+                            // $matches[0] এ সম্পূর্ণ লিঙ্কটি থাকে
+                            return $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[0]);
                         },
                         $message_body
                     );
