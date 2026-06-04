@@ -146,8 +146,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 require_once 'config/app.php';
                 $base_url = APP_URL;
 
-                // Convert plain text to HTML if is_html is 0, so that it renders correctly as HTML
-                if ($is_html == 0) {
+                // Check if the body contains Quill-escaped HTML tags (like &lt;!DOCTYPE, &lt;html, &lt;table, etc.)
+                if (preg_match('/&lt;(!DOCTYPE|html|head|body|table|tr|td|div|p|span|a|style)\b/i', $message_body)) {
+                    $message_body = str_replace('</p>', "\n", $message_body);
+                    $message_body = str_replace('<p>', "", $message_body);
+                    $message_body = preg_replace('/<br\s*\/?>/i', "\n", $message_body);
+                    $message_body = html_entity_decode($message_body, ENT_QUOTES, 'UTF-8');
+                    $message_body = trim($message_body);
+                }
+
+                // Helper to check if the message body contains HTML content
+                $is_body_html = ($is_html == 1) || preg_match('/<(!DOCTYPE|html|head|body|table|tr|td|div|p|span|a|br|h[1-6]|style|img|link)\b/i', $message_body);
+
+                // Convert plain text to HTML if it is not already HTML
+                if (!$is_body_html) {
                     $parts = preg_split('/(\bhttps?:\/\/[^\s\r\n<>\'\"]+)/i', $message_body, -1, PREG_SPLIT_DELIM_CAPTURE);
                     $html_body = '';
                     foreach ($parts as $index => $part) {
@@ -164,8 +176,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         }
                     }
                     $message_body = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n</head>\n<body>\n" . nl2br($html_body) . "\n</body>\n</html>";
-                    // $is_html = 1;
                 }
+
+                // Force is_html to 1 because we are sending an HTML email in all cases
+                $is_html = 1;
 
                 $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
 
@@ -176,7 +190,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 }
 
                 if ($is_html == 1) {
-
                     $message_body = preg_replace_callback(
                         '/href=["\'](http[^"\']+)["\']/',
                         function ($matches) use ($log_id, $base_url) {

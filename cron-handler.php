@@ -57,8 +57,20 @@ try {
         $processed_subject = getPersonalizedBody($pdo, $job['subject'], $job['contact_id']);
         $processed_body = getPersonalizedBody($pdo, $job['message_body'], $job['contact_id']);
 
-        // Convert plain text to HTML if is_html is 0, so that it renders correctly as HTML
-        if ($job['is_html'] == 0) {
+        // Check if the body contains Quill-escaped HTML tags (like &lt;!DOCTYPE, &lt;html, &lt;table, etc.)
+        if (preg_match('/&lt;(!DOCTYPE|html|head|body|table|tr|td|div|p|span|a|style)\b/i', $processed_body)) {
+            $processed_body = str_replace('</p>', "\n", $processed_body);
+            $processed_body = str_replace('<p>', "", $processed_body);
+            $processed_body = preg_replace('/<br\s*\/?>/i', "\n", $processed_body);
+            $processed_body = html_entity_decode($processed_body, ENT_QUOTES, 'UTF-8');
+            $processed_body = trim($processed_body);
+        }
+
+        // Helper to check if the message body contains HTML content
+        $is_body_html = ($job['is_html'] == 1) || preg_match('/<(!DOCTYPE|html|head|body|table|tr|td|div|p|span|a|br|h[1-6]|style|img|link)\b/i', $processed_body);
+
+        // Convert plain text to HTML if it is not already HTML
+        if (!$is_body_html) {
             // Split by URL to escape the text while keeping URLs intact and wrapping them in <a> tags
             $parts = preg_split('/(\bhttps?:\/\/[^\s\r\n<>\'\"]+)/i', $processed_body, -1, PREG_SPLIT_DELIM_CAPTURE);
             $html_body = '';
@@ -80,10 +92,10 @@ try {
             
             // Wrap in basic HTML structure and apply nl2br
             $processed_body = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n</head>\n<body>\n" . nl2br($html_body) . "\n</body>\n</html>";
-            
-            // Now treat it as HTML for subsequent processing
-            // $job['is_html'] = 1;
         }
+
+        // Force is_html to 1 because we are sending an HTML email in all cases
+        $job['is_html'] = 1;
 
         if ($job['track_click'] == 1) {
             
