@@ -146,6 +146,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 require_once 'config/app.php';
                 $base_url = APP_URL;
 
+                // Convert plain text to HTML if is_html is 0, so that it renders correctly as HTML
+                if ($is_html == 0) {
+                    $parts = preg_split('/(\bhttps?:\/\/[^\s\r\n<>\'\"]+)/i', $message_body, -1, PREG_SPLIT_DELIM_CAPTURE);
+                    $html_body = '';
+                    foreach ($parts as $index => $part) {
+                        if ($index % 2 === 0) {
+                            $html_body .= htmlspecialchars($part, ENT_QUOTES, 'UTF-8');
+                        } else {
+                            $url = $part;
+                            $trail = '';
+                            if (preg_match('/([.,;?!]+)$/', $url, $matches)) {
+                                $trail = $matches[1];
+                                $url = substr($url, 0, -strlen($trail));
+                            }
+                            $html_body .= '<a href="' . $url . '">' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '</a>' . htmlspecialchars($trail, ENT_QUOTES, 'UTF-8');
+                        }
+                    }
+                    $message_body = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n</head>\n<body>\n" . nl2br($html_body) . "\n</body>\n</html>";
+                    // $is_html = 1;
+                }
+
                 if ($is_html == 1) {
                     // HTML Open Tracking Pixel
                     $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
@@ -161,20 +182,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         '/href=["\'](http[^"\']+)["\']/',
                         function ($matches) use ($log_id, $base_url) {
                             return 'href="' . $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[1]) . '"';
-                        },
-                        $message_body
-                    );
-                } else {
-
-
-                    $domain_fallback = str_replace(['http://', 'https://'], '', $base_url);
-                    $clean_base_url = preg_quote(rtrim($domain_fallback, '/'), '/');
-
-                    $message_body = preg_replace_callback(
-                        '/(?<!["\'\(\[])https?:\/\/(?!' . $clean_base_url . ')[^\s\r\n]+/i',
-                        function ($matches) use ($log_id, $base_url) {
-                            // $matches[0] এ সম্পূর্ণ লিঙ্কটি থাকে
-                            return $base_url . 'track_click.php?log_id=' . $log_id . '&url=' . urlencode($matches[0]);
                         },
                         $message_body
                     );

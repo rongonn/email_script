@@ -14,6 +14,7 @@ $form_campaign_id = 0;
 $form_subject = '';
 $form_delay_days = 0;
 $form_message_body = '';
+$form_is_html = 1;
 $form_track_open = 1;
 $form_track_click = 1;
 
@@ -32,6 +33,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
         $form_subject = $template['subject'];
         $form_delay_days = intval($template['delay_days']);
         $form_message_body = $template['message_body'];
+        $form_is_html = intval($template['is_html'] ?? 1);
         $form_track_open = intval($template['track_open'] ?? 1);
         $form_track_click = intval($template['track_click'] ?? 1);
     } else {
@@ -50,6 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $delay_days = max(0, intval($_POST['delay_days'] ?? 0));
 
         $message_body = trim($_POST['message_body_html'] ?? '');
+        $is_html = isset($_POST['is_html']) ? 1 : 0;
 
         $track_open = isset($_POST['track_open']) ? 1 : 0;
         $track_click = isset($_POST['track_click']) ? 1 : 0;
@@ -64,9 +67,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ) {
             throw new Exception("All required fields must be populated.");
         }
-
-        // HTML ONLY
-        $is_html = 1;
 
         if ($submit_id > 0) {
 
@@ -167,6 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $form_subject = $_POST['subject'] ?? '';
         $form_delay_days = $delay_days ?? 0;
         $form_message_body = $_POST['message_body_html'] ?? '';
+        $form_is_html = $is_html ?? 1;
         $form_track_open = $track_open ?? 1;
         $form_track_click = $track_click ?? 1;
 
@@ -223,6 +224,7 @@ $global_custom_fields = $fields_stmt->fetchAll(PDO::FETCH_COLUMN);
 
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/style.css">
 
     <style>
@@ -231,6 +233,26 @@ $global_custom_fields = $fields_stmt->fetchAll(PDO::FETCH_COLUMN);
         }
 
         textarea {
+            min-height: 450px;
+        }
+
+        /* Modern theme customizations over Quill standard layout inputs */
+        .ql-container.ql-snow {
+            border-bottom-left-radius: 0.75rem !important;
+            border-bottom-right-radius: 0.75rem !important;
+            border-color: #e2e8f0 !important;
+            font-family: 'Inter', sans-serif !important;
+            font-size: 0.75rem !important;
+        }
+
+        .ql-toolbar.ql-snow {
+            border-top-left-radius: 0.75rem !important;
+            border-top-right-radius: 0.75rem !important;
+            border-color: #e2e8f0 !important;
+            background-color: #f8fafc !important;
+        }
+
+        .ql-editor {
             min-height: 450px;
         }
     </style>
@@ -481,16 +503,25 @@ $global_custom_fields = $fields_stmt->fetchAll(PDO::FETCH_COLUMN);
                             <!-- HTML EDITOR -->
                             <div>
 
-                                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                                    HTML Email Body
-                                </label>
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                        Email Body Content Payload
+                                    </label>
+                                    <label class="inline-flex items-center cursor-pointer group">
+                                        <input type="checkbox" name="is_html" id="is_html_toggle" value="1" <?php echo ($form_is_html === 1) ? 'checked' : ''; ?> class="sr-only peer">
+                                        <div class="relative w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                                        <span class="ms-2 text-[10px] font-bold text-slate-400 group-hover:text-indigo-500 uppercase tracking-wider transition-colors">Use Rich Text Editor (HTML)</span>
+                                    </label>
+                                </div>
+
+                                <div id="quill-editor-container" class="bg-white text-xs <?php echo ($form_is_html === 0) ? 'hidden' : ''; ?>"></div>
 
                                 <textarea
                                     id="workspace-html-body"
                                     name="message_body_html"
                                     rows="16"
                                     onkeyup="updateLiveViewportPreviewFrames()"
-                                    class="w-full px-3.5 py-3 border border-indigo-200 bg-indigo-50/5 text-xs rounded-xl focus:outline-none focus:border-indigo-500 font-mono resize-none"><?php echo htmlspecialchars($form_message_body); ?></textarea>
+                                    class="w-full px-3.5 py-3 border border-indigo-200 bg-indigo-50/5 text-xs rounded-xl focus:outline-none focus:border-indigo-500 font-mono resize-none <?php echo ($form_is_html === 1) ? 'hidden' : ''; ?>"><?php echo htmlspecialchars($form_message_body); ?></textarea>
 
                             </div>
 
@@ -529,25 +560,97 @@ $global_custom_fields = $fields_stmt->fetchAll(PDO::FETCH_COLUMN);
 
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
     <script>
+        let quill;
+
+        document.addEventListener("DOMContentLoaded", function() {
+            // Initialize Quill
+            quill = new Quill('#quill-editor-container', {
+                theme: 'snow',
+                placeholder: 'Compose your email message here... Use formatting options for rich HTML or switch to plain text mode.',
+                modules: {
+                    toolbar: [
+                        ['bold', 'italic', 'underline'],
+                        [{
+                            'list': 'ordered'
+                        }, {
+                            'list': 'bullet'
+                        }],
+                        ['link', 'clean']
+                    ]
+                }
+            });
+
+            // Set initial content if in HTML mode
+            if (document.getElementById('is_html_toggle').checked) {
+                quill.root.innerHTML = document.getElementById('workspace-html-body').value;
+            }
+
+            // Toggle Handler
+            document.getElementById('is_html_toggle').addEventListener('change', function() {
+                const isHtml = this.checked;
+                const textarea = document.getElementById('workspace-html-body');
+                const quillContainer = document.getElementById('quill-editor-container');
+
+                if (isHtml) {
+                    // Plain -> HTML
+                    quill.root.innerHTML = textarea.value;
+                    textarea.classList.add('hidden');
+                    quillContainer.classList.remove('hidden');
+                    // Reset textarea if it was showing raw HTML that we don't want to double up on
+                } else {
+                    // HTML -> Plain
+                    // Use getSemanticHTML or innerHTML depending on preference, here we use root.innerHTML
+                    textarea.value = quill.root.innerHTML;
+                    quillContainer.classList.add('hidden');
+                    textarea.classList.remove('hidden');
+                }
+                updateLiveViewportPreviewFrames();
+            });
+
+            // Sync Quill to Textarea before submit
+            document.getElementById('template-builder-form').addEventListener('submit', function() {
+                if (document.getElementById('is_html_toggle').checked) {
+                    document.getElementById('workspace-html-body').value = quill.root.innerHTML;
+                }
+            });
+
+            // Update preview on Quill change
+            quill.on('text-change', function() {
+                if (document.getElementById('is_html_toggle').checked) {
+                    updateLiveViewportPreviewFrames();
+                }
+            });
+        });
+
         function insertFieldTagIntoWorkspaceActiveCaret(tag) {
-            const textarea = document.getElementById('workspace-html-body');
-            if (!textarea) return;
+            const isHtml = document.getElementById('is_html_toggle').checked;
 
-            const startPos = textarea.selectionStart;
-            const endPos = textarea.selectionEnd;
-            const text = textarea.value;
+            if (isHtml && quill) {
+                const range = quill.getSelection(true);
+                quill.insertText(range.index, tag, 'user');
+                quill.setSelection(range.index + tag.length, 0);
+                updateLiveViewportPreviewFrames();
+            } else {
+                const textarea = document.getElementById('workspace-html-body');
+                if (!textarea) return;
 
-            // Insert the tag at current cursor position
-            textarea.value = text.substring(0, startPos) + tag + text.substring(endPos);
+                const startPos = textarea.selectionStart;
+                const endPos = textarea.selectionEnd;
+                const text = textarea.value;
 
-            // Reposition cursor after the inserted tag
-            textarea.focus();
-            textarea.selectionStart = startPos + tag.length;
-            textarea.selectionEnd = startPos + tag.length;
+                // Insert the tag at current cursor position
+                textarea.value = text.substring(0, startPos) + tag + text.substring(endPos);
 
-            // Trigger preview update
-            updateLiveViewportPreviewFrames();
+                // Reposition cursor after the inserted tag
+                textarea.focus();
+                textarea.selectionStart = startPos + tag.length;
+                textarea.selectionEnd = startPos + tag.length;
+
+                // Trigger preview update
+                updateLiveViewportPreviewFrames();
+            }
         }
 
         function updateLiveViewportPreviewFrames() {
@@ -577,14 +680,14 @@ $global_custom_fields = $fields_stmt->fetchAll(PDO::FETCH_COLUMN);
             const subject =
                 document.getElementById('input-subject').value;
 
-            const html =
-                document.getElementById('workspace-html-body').value;
+            const isHtml = document.getElementById('is_html_toggle').checked;
+            const content = isHtml ? quill.root.innerHTML : document.getElementById('workspace-html-body').value;
 
             document.getElementById('modal-subject').innerText =
                 subject || 'No Subject';
 
             document.getElementById('modal-html-preview').innerHTML =
-                html || '<div style="color:#999">No content available</div>';
+                content || '<div style="color:#999">No content available</div>';
         }
 
         function showDesktopPreview() {

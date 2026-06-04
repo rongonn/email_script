@@ -57,6 +57,34 @@ try {
         $processed_subject = getPersonalizedBody($pdo, $job['subject'], $job['contact_id']);
         $processed_body = getPersonalizedBody($pdo, $job['message_body'], $job['contact_id']);
 
+        // Convert plain text to HTML if is_html is 0, so that it renders correctly as HTML
+        if ($job['is_html'] == 0) {
+            // Split by URL to escape the text while keeping URLs intact and wrapping them in <a> tags
+            $parts = preg_split('/(\bhttps?:\/\/[^\s\r\n<>\'\"]+)/i', $processed_body, -1, PREG_SPLIT_DELIM_CAPTURE);
+            $html_body = '';
+            foreach ($parts as $index => $part) {
+                if ($index % 2 === 0) {
+                    // Escaping non-URL text
+                    $html_body .= htmlspecialchars($part, ENT_QUOTES, 'UTF-8');
+                } else {
+                    // Extracting URL and wrapping it in an anchor tag
+                    $url = $part;
+                    $trail = '';
+                    if (preg_match('/([.,;?!]+)$/', $url, $matches)) {
+                        $trail = $matches[1];
+                        $url = substr($url, 0, -strlen($trail));
+                    }
+                    $html_body .= '<a href="' . $url . '">' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '</a>' . htmlspecialchars($trail, ENT_QUOTES, 'UTF-8');
+                }
+            }
+            
+            // Wrap in basic HTML structure and apply nl2br
+            $processed_body = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n</head>\n<body>\n" . nl2br($html_body) . "\n</body>\n</html>";
+            
+            // Now treat it as HTML for subsequent processing
+            // $job['is_html'] = 1;
+        }
+
         if ($job['track_click'] == 1) {
             
             $domain_fallback = str_replace(['http://', 'https://'], '', $base_url);
@@ -80,7 +108,7 @@ try {
                 );
             }
         }
-        if ($job['track_open'] == 1 && $job['is_html'] == 1) {
+        if ($job['track_open'] == 1) {
             $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
 
             if (strpos($processed_body, '</body>') !== false) {
