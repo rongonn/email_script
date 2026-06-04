@@ -167,17 +167,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     // $is_html = 1;
                 }
 
+                $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
+
+                if (strpos($message_body, '</body>') !== false) {
+                    $message_body = str_replace('</body>', $pixel_tag . '</body>', $message_body);
+                } else {
+                    $message_body .= $pixel_tag;
+                }
+
                 if ($is_html == 1) {
-                    // HTML Open Tracking Pixel
-                    $pixel_tag = '<img src="' . $base_url . 'track_open.php?log_id=' . $log_id . '" width="1" height="1" style="display:none !important;" alt="">';
 
-                    if (strpos($message_body, '</body>') !== false) {
-                        $message_body = str_replace('</body>', $pixel_tag . '</body>', $message_body);
-                    } else {
-                        $message_body .= $pixel_tag;
-                    }
-
-                    // HTML Click Tracking (Wrap hrefs)
                     $message_body = preg_replace_callback(
                         '/href=["\'](http[^"\']+)["\']/',
                         function ($matches) use ($log_id, $base_url) {
